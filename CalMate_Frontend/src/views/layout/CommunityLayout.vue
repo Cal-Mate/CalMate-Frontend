@@ -8,6 +8,8 @@
     <RouterView/>
   </main>
 
+  <aside></aside>
+  
 </template>
 
 <script setup>
