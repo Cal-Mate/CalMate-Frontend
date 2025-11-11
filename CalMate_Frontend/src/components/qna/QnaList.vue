@@ -6,7 +6,12 @@
         <h2 class="hero-title">문의사항</h2>
         <p class="hero-sub">궁금한 점이나 문제가 있으면 언제든 문의해주세요</p>
       </div>
-      <RouterLink class="compose-btn" to="/main/qna/new">📨 문의 작성</RouterLink>
+      <RouterLink
+        class="compose-btn"
+        :to="{ name: 'dashboard-qna-new' }"
+      >
+        📨 문의 작성
+      </RouterLink>
     </section>
 
     <section class="card">

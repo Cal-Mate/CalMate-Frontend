@@ -90,7 +90,7 @@ onMounted(() => {
 })
 
 function goBack() {
-  history.length > 1 ? history.back() : router.push('/main/qna')
+  router.push({ name: 'dashboard-qna-list' })
 }
 
 function statusClass(s) {
