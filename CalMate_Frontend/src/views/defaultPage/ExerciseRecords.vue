@@ -51,7 +51,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import ExerciseSummaryCard from '@/components/exerciseRecords/ExerciseSummaryCard.vue'
 import ExerciseTodayList from '@/components/exerciseRecords/ExerciseTodayList.vue'
 import ExerciseRecordModal from '@/components/exerciseRecords/ExerciseRecordModal.vue'
@@ -62,6 +62,33 @@ import greenIcon from '@/assets/images/exerciseRecords/greendumbel.png'
 import plusIcon from '@/assets/images/exerciseRecords/plus.png'
 
 const records = ref([])
+
+// localStorage persistence by date so Calendar can show data
+const STORE_KEY = 'exerciseRecordsByDate'
+const toTodayKey = () => {
+  const d = new Date()
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+const loadMap = () => {
+  try { return JSON.parse(localStorage.getItem(STORE_KEY) || '{}') } catch { return {} }
+}
+const saveMap = (map) => localStorage.setItem(STORE_KEY, JSON.stringify(map))
+
+onMounted(() => {
+  const map = loadMap()
+  const today = toTodayKey()
+  if (map[today]?.records) records.value = map[today].records
+})
+
+watch(records, (arr) => {
+  const burnKcal = arr.reduce((sum, r) => sum + (Number(r.kcal) || 0), 0)
+  const map = loadMap()
+  map[toTodayKey()] = { records: arr, burnKcal }
+  saveMap(map)
+}, { deep: true })
 
 const isModalOpen = ref(false)
 
