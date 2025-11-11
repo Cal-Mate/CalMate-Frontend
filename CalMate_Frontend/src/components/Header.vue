@@ -66,15 +66,19 @@
           </RouterLink>
         </li>
 
-        <li class="menu-item">
-          <RouterLink class="menu-link" to="#">
+        <li class="menu-item"
+        :class="{ active: isActive('/main/diary') }"
+        >
+          <RouterLink class="menu-link" to="/main/diary">
             <img :src="diaryIcon" alt="" class="menu-icon" />
             <span>일기</span>
           </RouterLink>
         </li>
 
-        <li class="menu-item">
-          <RouterLink class="menu-link" to="#">
+        <li class="menu-item"
+        :class="{ active: isActive('/main/calendar') }"
+        >
+          <RouterLink class="menu-link" to="/main/calendar">
             <img :src="calendarIcon" alt="" class="menu-icon" />
             <span>캘린더</span>
           </RouterLink>
