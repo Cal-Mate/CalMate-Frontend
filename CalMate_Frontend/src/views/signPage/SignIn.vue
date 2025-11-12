@@ -74,6 +74,7 @@ async function signIn() {
   try{
     const response = 
       await api.post('/login',
+      // await api.post('/member/login',                   //@@@@@@@@@@ 해당부분 잠시 수정함@@@@@@
               {
                   email: email.value,
                   pwd: pwd.value

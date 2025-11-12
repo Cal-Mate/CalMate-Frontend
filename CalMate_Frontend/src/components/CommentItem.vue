@@ -16,7 +16,7 @@
 
     <template v-else>
       <p class="body"
-        :class="{ deleted: comment.content === '삭제된 댓글입니다.' }">
+         :class="{ deleted: comment.content === '삭제된 댓글입니다.' }">
         {{ comment.content }}
       </p>
     </template>
@@ -34,8 +34,14 @@
       </button>
 
       <!-- 수정 / 삭제 -->
-      <button class="edit-btn" @click="startEdit">수정</button>
-      <button class="delete-btn" @click="removeComment">삭제</button>
+      <!-- <button class="edit-btn" @click="startEdit">수정</button>
+      <button class="delete-btn" @click="removeComment">삭제</button> -->
+      
+      <!-- ✏️ 본인일 때만 수정/삭제 버튼 노출 -->
+      <template v-if="userStore.userId === comment.memberId">
+        <button class="edit-btn" @click="startEdit">수정</button>
+        <button class="delete-btn" @click="removeComment">삭제</button>
+      </template> 
     </div>
 
     <!-- ✅ 답글 입력 -->
@@ -65,48 +71,40 @@
 defineOptions({ name: 'CommentItem' })
 
 import { ref } from 'vue'
+import { useRouter } from 'vue-router'
+import { useUserStore } from "@/stores/user"
 import { addComment, updateComment, deleteComment, toggleCommentLike } from '@/api/post'
+
+const userStore = useUserStore()
+const router = useRouter()
 
 const props = defineProps({
   comment: { type: Object, required: true },
   postId: { type: [String, Number], required: true }
 })
+
 const emit = defineEmits(['submitted'])
 
 /* ✅ 좋아요 상태 */
 const likeCount = ref(props.comment.likeCount ?? 0)
 const liked = ref(props.comment.liked ?? false)
-const memberId = 1                              // 로그인 연동 전 임시 값
 
-// const toggleLike = async () => {
-//   try {
-//     const { data } = await toggleCommentLike(props.comment.id, memberId)
-//     likeCount.value = data.likeCount
-//     liked.value = data.liked
-//   } catch (e) {
-//     console.error("댓글 좋아요 오류:", e)
-//   }
-// }
 const toggleLike = async () => {
-  try {
-    const { data } = await toggleCommentLike(props.comment.id, memberId)
+  if (!userStore.isLoggedIn) {
+    alert("로그인이 필요합니다 😊")
+    return router.push("/sign/signIn")
+  }
 
-    // 서버 응답이 likeCount, liked 를 주지 않더라도 로직 유지됨
-    if (liked.value) {
-      // 이미 좋아요 상태였다면 → 좋아요 취소
-      likeCount.value = Math.max(likeCount.value - 1, 0)
-      liked.value = false
-    } else {
-      // 좋아요 추가
-      likeCount.value = likeCount.value + 1
-      liked.value = true
-    }
+  await toggleCommentLike(props.comment.id, userStore.userId)
 
-  } catch (e) {
-    console.error("댓글 좋아요 오류:", e)
+  if (liked.value) {
+    likeCount.value = Math.max(likeCount.value - 1, 0)
+    liked.value = false
+  } else {
+    likeCount.value += 1
+    liked.value = true
   }
 }
-
 
 /* ✅ 대댓글 */
 const showReply = ref(false)
@@ -114,12 +112,19 @@ const replyText = ref('')
 const toggleReply = () => (showReply.value = !showReply.value)
 
 const submitReply = async () => {
+  if (!userStore.isLoggedIn) {
+    alert("로그인이 필요합니다 😊")
+    return router.push("/sign/signIn")
+  }
+
   if (!replyText.value.trim()) return
+
   await addComment(props.postId, {
-    memberId: 1,
+    memberId: userStore.userId,
     content: replyText.value,
     parentId: props.comment.id
   })
+
   replyText.value = ''
   showReply.value = false
   emit('submitted')
@@ -129,22 +134,42 @@ const submitReply = async () => {
 const isEditing = ref(false)
 const editText = ref(props.comment.content)
 
-const startEdit = () => (isEditing.value = true)
+const startEdit = () => {
+  if (!userStore.isLoggedIn) {
+    alert("로그인이 필요합니다 😊")
+    return router.push("/sign/signIn")
+  }
+
+  isEditing.value = true
+}
+
 const cancelEdit = () => {
   editText.value = props.comment.content
   isEditing.value = false
 }
+
 const saveEdit = async () => {
+  if (!userStore.isLoggedIn) {
+    alert("로그인이 필요합니다 😊")
+    return router.push("/sign/signIn")
+  }
+
   if (!editText.value.trim()) return
-  await updateComment(props.postId, props.comment.id, editText.value)
+
+  await updateComment(props.postId, props.comment.id, editText.value, userStore.userId)
   isEditing.value = false
   emit('submitted')
 }
 
 /* ✅ 삭제 */
 const removeComment = async () => {
+  if (!userStore.isLoggedIn) {
+    alert("로그인이 필요합니다 😊")
+    return router.push("/sign/signIn")
+  }
+
   if (!confirm("정말 삭제하시겠습니까?")) return
-  await deleteComment(props.postId, props.comment.id)
+  await deleteComment(props.postId, props.comment.id, userStore.userId)
   emit('submitted')
 }
 </script>

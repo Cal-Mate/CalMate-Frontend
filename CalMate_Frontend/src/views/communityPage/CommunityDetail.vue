@@ -1,12 +1,10 @@
 <template>
   <div class="detail-wrap">
-
     <!-- 뒤로가기 -->
     <button class="back-btn" @click="router.back()">← 돌아가기</button>
 
     <!-- 카드 -->
     <div class="detail-card">
-
       <!-- 작성자 + 작성일 -->
       <div class="post-header">
         <div class="author">{{ post.authorName }}</div>
@@ -15,7 +13,6 @@
 
       <!-- ✅ 제목 + 수정/삭제 같은 줄 -->
       <div class="title-action-row">
-
         <!-- 제목 -->
         <template v-if="!isEditing">
           <h2 class="title">{{ post.title }}</h2>
@@ -26,18 +23,19 @@
 
         <!-- 수정 / 삭제 / 저장 / 취소 -->
         <div class="post-action">
-          <template v-if="!isEditing">
+          <!-- ✅ 작성자 본인일 때만 버튼 노출 -->
+          <template v-if="!isEditing && post.memberId === userStore.userId">
             <button class="edit-btn" @click="startEdit">수정</button>
             <button class="delete-btn" @click="deletePost">삭제</button>
           </template>
-          <template v-else>
+
+          <template v-else-if="isEditing">
             <button class="save-btn" @click="saveEdit" :disabled="saving">
               {{ saving ? '저장 중...' : '저장' }}
             </button>
             <button class="cancel-btn-ghost" @click="cancelEdit" :disabled="saving">취소</button>
           </template>
         </div>
-
       </div>
 
       <!-- ✅ 카테고리 수정 -->
@@ -59,9 +57,14 @@
         <textarea v-model="form.content" class="edit-content" placeholder="내용을 입력하세요"></textarea>
       </template>
 
-      <!-- ✅ 상세조회 이미지 표시 -->
+      <!-- ✅ 상세조회 이미지 -->
       <div v-if="!isEditing && post.images?.length" class="post-images">
-        <img v-for="(img, i) in post.images" :key="i" :src="`${api.defaults.baseURL}${img}`" class="detail-img" />
+        <img
+          v-for="(img, i) in post.images"
+          :key="i"
+          :src="`${api.defaults.baseURL}${img}`"
+          class="detail-img"
+        />
       </div>
 
       <!-- ✅ 수정 모드 이미지 미리보기 -->
@@ -83,7 +86,6 @@
         </div>
       </div>
 
-
       <!-- 좋아요/댓글 -->
       <div class="post-footer">
         <button class="like-btn" @click="toggleLikePost">
@@ -91,7 +93,6 @@
         </button>
         <div>💬 {{ post.comments }}</div>
       </div>
-
     </div>
 
     <!-- 댓글 -->
@@ -99,9 +100,11 @@
       <h3>댓글</h3>
 
       <div class="comment-write">
-        <input v-model="newComment"
+        <input
+          v-model="newComment"
           placeholder="댓글을 입력하세요..."
-          @keyup.enter="submitComment"/>
+          @keyup.enter="submitComment"
+        />
         <button @click="submitComment">등록</button>
       </div>
 
@@ -115,33 +118,31 @@
         />
       </div>
     </div>
-
   </div>
 </template>
 
 <script setup>
-import { togglePostLike } from "@/api/post";
+import { togglePostLike } from "@/api/post"
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { fetchPostDetail, addComment } from '@/api/post'
 import api from '@/lib/api'
 import CommentItem from '@/components/CommentItem.vue'
+import { useUserStore } from "@/stores/user"
 
+const userStore = useUserStore()
 const route = useRoute()
 const router = useRouter()
 
-const removedImages = ref([])   // ✅ 삭제 요청할 이미지 목록
-
+const removedImages = ref([])
 const post = ref({})
-const existingImages = ref([])   // ✅ 기존 이미지 여러장 저장
-const previews = ref([])         // ✅ 새 이미지 미리보기
-const newImages = ref([])        // ✅ 새로 업로드되는 이미지들
+const existingImages = ref([])
+const previews = ref([])
+const newImages = ref([])
 
 const form = ref({ title: '', content: '', tagId: null })
 
 const comments = ref([])
 const newComment = ref('')
-const memberId = 1                                // 로그인 전 임시값
 
 const likeCount = ref(0)
 const liked = ref(false)
@@ -150,18 +151,22 @@ const isEditing = ref(false)
 const saving = ref(false)
 
 const removeExistingImage = (index) => {
-  removedImages.value.push(existingImages.value[index]); // ✅ 삭제 요청 목록에 추가
-  existingImages.value.splice(index, 1); // ✅ 화면에서 제거
+  removedImages.value.push(existingImages.value[index])
+  existingImages.value.splice(index, 1)
 }
 
 const loadPost = async () => {
   const { data } = await api.get(`/community/post/${route.params.postId}`, {
-    params: { memberId }
+    params: { memberId: userStore.userId || 0 }
   })
 
   post.value = data
-  form.value = { title: data.title, content: data.content, tagId: data.tagId != null ? String(data.tagId) : '' } // 방어
-  existingImages.value = data.images ?? []   // ✅ 배열로 저장
+  form.value = {
+    title: data.title,
+    content: data.content,
+    tagId: data.tagId != null ? String(data.tagId) : ''
+  }
+  existingImages.value = data.images ?? []
 
   likeCount.value = data.likes ?? 0
   liked.value = data.liked ?? false
@@ -169,7 +174,7 @@ const loadPost = async () => {
 
 const loadComments = async () => {
   const { data } = await api.get(`/community/post/${route.params.postId}/comments`, {
-    params: { memberId }
+    params: { memberId: userStore.userId || 0 }
   })
   comments.value = data
 }
@@ -181,18 +186,13 @@ const handleFiles = (e) => {
 
 const saveEdit = async () => {
   saving.value = true
-  
+
   const fd = new FormData()
   fd.append('title', form.value.title)
   fd.append('content', form.value.content)
   fd.append('tagId', form.value.tagId)
 
-  // ✅ 삭제된 기존 이미지 목록 보내기
-  removedImages.value.forEach(url => {
-    fd.append("deleteImages", url)
-  })
-
-  // ✅ 새 이미지 추가 업로드
+  removedImages.value.forEach(url => fd.append("deleteImages", url))
   newImages.value.forEach(img => fd.append("images", img))
 
   await api.patch(`/community/post/${route.params.postId}`, fd, {
@@ -208,6 +208,7 @@ const saveEdit = async () => {
 }
 
 const startEdit = () => {
+  if (post.value.memberId !== userStore.userId) return
   isEditing.value = true
 }
 
@@ -218,22 +219,34 @@ const cancelEdit = () => {
 }
 
 const deletePost = async () => {
+  if (post.value.memberId !== userStore.userId) return
   if (!confirm("정말 삭제하시겠습니까?")) return
   await api.delete(`/community/post/${route.params.postId}`)
   router.push("/community")
 }
 
 const toggleLikePost = async () => {
-  await togglePostLike(route.params.postId, memberId)
+  // ✅ 여기 로그인 체크 추가됨
+  if (!userStore.isLoggedIn) {
+    alert("로그인이 필요합니다 😊")
+    return router.push("/sign/signIn")
+  }
+
+  await togglePostLike(route.params.postId, userStore.userId)
   liked.value = !liked.value
   likeCount.value += liked.value ? 1 : -1
 }
 
 const submitComment = async () => {
+  if (!userStore.isLoggedIn) {
+    alert("로그인이 필요합니다 😊")
+    return router.push("/sign/signIn")
+  }
+
   if (!newComment.value.trim()) return
 
   await api.post(`/community/post/${route.params.postId}/comments`, {
-    memberId,
+    memberId: userStore.userId,
     content: newComment.value
   })
   newComment.value = ''
@@ -403,6 +416,7 @@ onMounted(() => {
   flex-direction: column;
   gap: 12px;
 }
+
 .detail-img,
 .preview-img {
   width: 100%;
