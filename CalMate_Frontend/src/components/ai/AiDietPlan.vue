@@ -55,13 +55,14 @@
   </div> </template>
 
 <script setup>
-import { ref } from 'vue';
+import { ref, onMounted } from 'vue';
 import { useUserStore } from '@/stores/user';
 import api from '@/lib/api'
 import { useLoadingStore } from '@/stores/loading'
 
 const userStore = useUserStore();
 const aiResponse = ref(null);
+const dietPlan = ref(null);
 const loading = useLoadingStore()
 
 const mealTypeKorean = {
@@ -70,6 +71,14 @@ const mealTypeKorean = {
   dinner: '저녁',
   snack: '간식',
 };
+
+onMounted(() => {
+  const savedPlan = sessionStorage.getItem('aiDietPlan');
+
+  if (savedPlan) {
+    aiResponse.value = JSON.parse(savedPlan);
+  }
+});
 
 const handleAiRecommend = async () => {
         const payload = {
@@ -85,9 +94,10 @@ const handleAiRecommend = async () => {
         console.log('AI 서버로 요청을 보냅니다:', payload);
         loading.start();
         const response = await api.post('http://localhost:8081/ai/diet', payload, {timeout:35000});
-        console.log('AI 응답 수신 성공:', response.data);
         console.log('AI summary:', response.data.summary);
         aiResponse.value = response.data;
+        sessionStorage.setItem('aiDietPlan', JSON.stringify(response.data));
+        console.log('AI 추천 응답 저장 완료:', aiResponse.value);
     } catch (error) {
         console.error('AI 추천 요청 실패:', error);
     } finally {
