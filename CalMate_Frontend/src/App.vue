@@ -1,5 +1,6 @@
 <template>
   <RouterView />
+  <LoadingOverlay />
 </template>
 
 <script setup>
@@ -7,6 +8,7 @@ import { RouterView } from 'vue-router'
 import { onMounted } from 'vue'
 import api from '@/lib/api'
 import { useUserStore } from '@/stores/user'
+import LoadingOverlay from './components/LoadingOverlay.vue'
 
 const userStore = useUserStore()
 
