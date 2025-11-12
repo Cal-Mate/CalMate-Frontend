@@ -42,6 +42,7 @@
                 type="file"
                 accept="image/*"
                 class="sr-only"
+                :disabled="currentCell?.completed"
                 @change="handleImageChange"
               />
             </label>
@@ -51,7 +52,7 @@
 
           <div v-if="currentCell && currentCell.completed" class="completed-banner">
             <span>✓</span>
-            <p>{{ currentCell.date }}에 인증 완료</p>
+            <p>{{ formatDate(currentCell.checkedAt) }}에 인증 완료</p>
           </div>
 
           <footer class="verification-footer">
@@ -59,19 +60,12 @@
               {{ currentCell && currentCell.completed ? '닫기' : '취소' }}
             </Button>
             <Button
-              v-if="currentCell && currentCell.completed"
-              variant="destructive"
-              @click="handleRemoveVerification"
-            >
-              인증 취소
-            </Button>
-            <Button
-              v-else
+              v-if="!(currentCell && currentCell.completed)"
               class="submit-button"
-              :disabled="!uploadedImage"
+              :disabled="!uploadedFile || isSubmitting"
               @click="handleSubmitVerification"
             >
-              인증 완료
+              {{ isSubmitting ? '업로드 중...' : '인증 완료' }}
             </Button>
           </footer>
         </div>
@@ -85,9 +79,8 @@ import { computed, defineComponent, onBeforeUnmount, ref, watch } from 'vue';
 import { Camera, X } from 'lucide-vue-next';
 import Button from '../ui/Button.vue';
 import Input from '../ui/Input.vue';
-import { checkBingoLines, isBingoComplete } from '../lib/bingoData.js';
-import { POINTS_RULES } from '../lib/pointsSystem.js';
 import { useToast } from '../lib/toast.js';
+import { checkBingoCell } from '@/api/bingo';
 
 export default defineComponent({
   name: 'BingoVerificationModal',
@@ -106,19 +99,25 @@ export default defineComponent({
       type: Array,
       required: true,
     },
-    completedLines: {
+    boardId: {
       type: Number,
-      required: true,
+      default: null,
     },
-    totalPoints: {
-      type: Number,
-      required: true,
+    memberId: {
+      type: [Number, String],
+      default: null,
+    },
+    extendFilePathId: {
+      type: [Number, String],
+      default: null,
     },
   },
-  emits: ['update:board', 'update:completedLines', 'update:totalPoints', 'close'],
+  emits: ['close', 'verification-success'],
   setup(props, { emit }) {
-    const { success, error, info } = useToast();
-    const uploadedImage = ref(null);
+    const { success, error } = useToast();
+    const uploadedFile = ref(null);
+    const uploadedPreview = ref(null);
+    const isSubmitting = ref(false);
     const isOpen = computed(() => Boolean(props.selectedCell));
 
     const currentCell = computed(() => {
@@ -127,12 +126,14 @@ export default defineComponent({
       return props.board[row]?.[col] ?? null;
     });
 
-    const previewImage = computed(() => uploadedImage.value || currentCell.value?.photo || null);
+    const previewImage = computed(
+      () => uploadedPreview.value || currentCell.value?.photo || currentCell.value?.uploads?.[0]?.fullUrl || null,
+    );
 
     watch(
       () => props.selectedCell,
       () => {
-        uploadedImage.value = null;
+        resetImage();
       },
     );
 
@@ -164,93 +165,60 @@ export default defineComponent({
         return;
       }
 
+      uploadedFile.value = file;
       const reader = new FileReader();
       reader.onloadend = () => {
-        uploadedImage.value = reader.result;
+        uploadedPreview.value = reader.result;
       };
       reader.readAsDataURL(file);
     }
 
-    function handleSubmitVerification() {
-      if (!props.selectedCell || !uploadedImage.value) {
+    async function handleSubmitVerification() {
+      if (!props.selectedCell || !currentCell.value) {
+        error('인증할 셀을 선택해주세요.');
+        return;
+      }
+      if (currentCell.value.completed) {
+        error('이미 인증이 완료된 셀입니다.');
+        return;
+      }
+      if (!uploadedFile.value) {
         error('사진을 업로드해주세요.');
         return;
       }
-
-      const { row, col } = props.selectedCell;
-      const newBoard = props.board.map((rowData, i) =>
-        rowData.map((cell, j) => {
-          if (i === row && j === col) {
-            return {
-              ...cell,
-              completed: true,
-              date: new Date().toISOString().split('T')[0],
-              photo: uploadedImage.value,
-            };
-          }
-          return cell;
-        }),
-      );
-
-      const wasComplete = isBingoComplete(props.board);
-      const newLines = checkBingoLines(newBoard);
-      const lineIncrease = newLines - props.completedLines;
-      const newPoints = props.totalPoints + lineIncrease * POINTS_RULES.BINGO_LINE;
-
-      emit('update:board', newBoard);
-      emit('update:completedLines', newLines);
-
-      if (!wasComplete && isBingoComplete(newBoard)) {
-        emit('update:totalPoints', newPoints + POINTS_RULES.BINGO_COMPLETE);
-        success(`🎉 빙고 완성! ${POINTS_RULES.BINGO_COMPLETE} 포인트 획득!`);
-      } else if (lineIncrease > 0) {
-        emit('update:totalPoints', newPoints);
-        success(`빙고 라인 완성! ${lineIncrease * POINTS_RULES.BINGO_LINE} 포인트 획득!`);
-      } else {
-        emit('update:totalPoints', newPoints);
-        success('인증 완료!');
+      if (!props.boardId || !props.memberId) {
+        error('사용자 정보를 확인할 수 없습니다.');
+        return;
       }
 
-      closeModal();
-    }
-
-    function handleRemoveVerification() {
-      if (!props.selectedCell) return;
-      const { row, col } = props.selectedCell;
-
-      const newBoard = props.board.map((rowData, i) =>
-        rowData.map((cell, j) => {
-          if (i === row && j === col) {
-            return {
-              ...cell,
-              completed: false,
-              date: undefined,
-              photo: undefined,
-            };
-          }
-          return cell;
-        }),
-      );
-
-      const newLines = checkBingoLines(newBoard);
-      const lineDecrease = props.completedLines - newLines;
-      const newPoints = Math.max(0, props.totalPoints - lineDecrease * POINTS_RULES.BINGO_LINE);
-
-      emit('update:board', newBoard);
-      emit('update:completedLines', newLines);
-      emit('update:totalPoints', newPoints);
-
-      info('인증이 취소되었습니다.');
-      closeModal();
+      isSubmitting.value = true;
+      try {
+        await checkBingoCell({
+          boardId: props.boardId,
+          cellId: currentCell.value.cellId ?? currentCell.value.id,
+          memberId: props.memberId,
+          file: uploadedFile.value,
+          extendFilePathId: props.extendFilePathId,
+        });
+        success('인증이 완료되었어요!');
+        emit('verification-success');
+        closeModal();
+      } catch (err) {
+        console.error(err);
+        error('인증에 실패했습니다. 잠시 후 다시 시도해주세요.');
+      } finally {
+        isSubmitting.value = false;
+      }
     }
 
     function closeModal() {
-      uploadedImage.value = null;
+      resetImage();
       emit('close');
     }
 
     function resetImage() {
-      uploadedImage.value = null;
+      uploadedFile.value = null;
+      uploadedPreview.value = null;
     }
 
     function handleKeydown(event) {
@@ -259,21 +227,29 @@ export default defineComponent({
       }
     }
 
+    function formatDate(value) {
+      if (!value) return '';
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return value;
+      return date.toLocaleDateString();
+    }
+
     onBeforeUnmount(() => {
       document.body.classList.remove('overflow-hidden');
       window.removeEventListener('keydown', handleKeydown);
     });
 
     return {
-      uploadedImage,
+      uploadedFile,
       isOpen,
       currentCell,
       previewImage,
+      isSubmitting,
       handleImageChange,
       handleSubmitVerification,
-      handleRemoveVerification,
       closeModal,
       resetImage,
+      formatDate,
     };
   },
 });

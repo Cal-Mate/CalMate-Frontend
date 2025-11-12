@@ -158,13 +158,18 @@ import {
   fetchActiveGachaEvent,
   fetchEventPrizes,
   fetchMemberBoardCells,
-  openBoardCell,
-  recordGachaDrawLog,
+  drawGacha,
 } from '@/api/gacha';
 import Badge from '../ui/Badge.vue';
 import VintageDrawBoard from './VintageDrawBoard.vue';
 import { drawReward as drawRewardFallback } from '../lib/rewardsData.js';
 import { LUCKY_DRAW_TICKET_COST } from '../lib/pointsSystem.js';
+import { Client } from '@stomp/stompjs';
+import SockJS from 'sockjs-client';
+
+const DEFAULT_API_BASE_URL = 'http://localhost:8081';
+const API_BASE_URL = (import.meta.env?.VITE_API_BASE_URL || DEFAULT_API_BASE_URL).replace(/\/$/, '');
+const WS_BASE_URL = (import.meta.env?.VITE_WS_BASE_URL || API_BASE_URL).replace(/\/$/, '');
 
 const props = defineProps({
   availablePoints: {
@@ -184,6 +189,8 @@ const showResult = ref(false);
 const lastPickedSlot = ref(null);
 const rewardModalListener = ref(null);
 const boardResetTimer = ref(null);
+const stompClient = ref(null);
+const subscription = ref(null);
 
 const boardCells = ref([]);
 const boardSnapshot = ref(null);
@@ -349,6 +356,9 @@ onMounted(() => {
   if (memberId.value) {
     initializeGacha();
   }
+
+  // 실시간 업데이트를 위한 WebSocket 연결 시작
+  connectWebSocket();
 });
 
 watch(memberId, (value, oldValue) => {
@@ -643,25 +653,39 @@ async function handleSlotComplete(slotIndex) {
     return;
   }
 
-  const reward = pickServerPrize();
-  if (!reward) {
-    loadError.value = '추첨 가능한 경품이 없습니다.';
-    return;
-  }
-
   isDrawing.value = true;
   loadError.value = '';
 
   try {
-    await openBoardCell(targetCell.id, memberId.value, reward.id);
-    await recordGachaDrawLog(memberId.value, targetCell.id, reward.id);
+    // 백엔드의 가챠 뽑기 API 호출 (포인트 차감 + 셀 오픈 + 로그 기록 모두 처리됨)
+    const result = await drawGacha(eventInfo.value.id, memberId.value, targetCell.id);
 
+    if (!result.success) {
+      loadError.value = result.reason || '가챠 뽑기에 실패했습니다.';
+      showResult.value = false;
+      return;
+    }
+
+    // 백엔드에서 오픈한 셀 정보로 업데이트
     const openedAt = new Date().toISOString();
+    const openedCellId = result.cellId;
+    const prizeTier = result.prizeTier;
+
+    // 보드 셀 상태 업데이트
     boardCells.value = boardCells.value.map((cell) =>
-      cell.id === targetCell.id
-        ? { ...cell, status: 'OPENED', gachaPrizeId: reward.id, openedAt }
+      cell.id === openedCellId
+        ? { ...cell, status: 'OPENED', gachaPrizeId: result.inventoryId, openedAt }
         : cell,
     );
+
+    // 경품 정보 찾기 (prizeTier로 찾기)
+    const reward = prizePool.value.find((p) => p.name === prizeTier) || {
+      id: result.inventoryId,
+      name: prizeTier || '보상',
+      type: 'item',
+      description: '가챠 보상',
+      rarity: 'common',
+    };
 
     currentReward.value = reward;
     wonRewards.value = [...wonRewards.value, { ...reward, wonAt: openedAt }];
@@ -753,6 +777,83 @@ watch(
   { immediate: true },
 );
 
+function connectWebSocket() {
+  // WebSocket 클라이언트 생성
+  const wsEndpoint = `${WS_BASE_URL}/ws-gacha`;
+  const client = new Client({
+    webSocketFactory: () => new SockJS(wsEndpoint),
+    debug: (str) => {
+      console.log('[STOMP Debug]', str);
+    },
+    reconnectDelay: 5000,
+    heartbeatIncoming: 4000,
+    heartbeatOutgoing: 4000,
+    onConnect: () => {
+      console.log('✅ WebSocket 연결 성공!');
+
+      // /topic/gacha/updates 구독
+      subscription.value = client.subscribe('/topic/gacha/updates', (message) => {
+        console.log('📨 WebSocket 메시지 수신:', message.body);
+        try {
+          const update = JSON.parse(message.body);
+          handleGachaUpdate(update);
+        } catch (error) {
+          console.error('WebSocket 메시지 파싱 오류:', error);
+        }
+      });
+    },
+    onDisconnect: () => {
+      console.log('❌ WebSocket 연결 해제');
+    },
+    onWebSocketError: (event) => {
+      console.error('웹소켓 연결 오류 - 기본값(로컬) 또는 환경 변수 설정을 확인하세요:', event);
+    },
+    onStompError: (frame) => {
+      console.error('STOMP 오류:', frame);
+    },
+  });
+
+  stompClient.value = client;
+  client.activate();
+}
+
+function handleGachaUpdate(update) {
+  console.log('🎰 가챠 업데이트 처리:', update);
+
+  // 백엔드에서 브로드캐스트한 셀 업데이트를 반영
+  if (update.cellId && update.status) {
+    const cellIndex = boardCells.value.findIndex(cell => cell.id === update.cellId);
+    if (cellIndex !== -1) {
+      boardCells.value[cellIndex] = {
+        ...boardCells.value[cellIndex],
+        status: update.status,
+        gachaPrizeId: update.prizeId,
+        openedAt: update.openedAt || new Date().toISOString(),
+        openedByMemberId: update.memberId,
+      };
+
+      // 보드 셀 업데이트를 트리거하기 위해 배열을 새로 할당
+      boardCells.value = [...boardCells.value];
+
+      console.log(`✅ 셀 ${update.cellId} 상태 업데이트 완료`);
+    }
+  }
+}
+
+function disconnectWebSocket() {
+  if (subscription.value) {
+    subscription.value.unsubscribe();
+    subscription.value = null;
+  }
+
+  if (stompClient.value) {
+    stompClient.value.deactivate();
+    stompClient.value = null;
+  }
+
+  console.log('🔌 WebSocket 연결 종료');
+}
+
 onBeforeUnmount(() => {
   if (rewardModalListener.value) {
     window.removeEventListener('keydown', rewardModalListener.value);
@@ -763,6 +864,7 @@ onBeforeUnmount(() => {
   if (boardResetTimer.value) {
     clearTimeout(boardResetTimer.value);
   }
+  disconnectWebSocket();
 });
 </script>
 
