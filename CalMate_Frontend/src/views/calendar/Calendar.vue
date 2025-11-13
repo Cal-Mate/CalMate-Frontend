@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="cal-wrap">
     <header class="page-head">
       <h2 class="page-title">활동 캘린더</h2>
@@ -27,17 +27,29 @@
             <button
               v-else
               class="cell"
-              :class="[{ today: cell.isToday, selected: cell.isSelected }]"
+              :class="[
+                { today: cell.isToday, selected: cell.isSelected },
+                { 'cell-complete': cell.flags.allDone }
+              ]"
               type="button"
               @click="selectDate(cell.dayNumber)"
             >
-              <span class="num">{{ cell.dayNumber }}</span>
-              <div class="marks">
-                <span v-if="cell.flags.diet" class="mark diet" title="식단" />
-                <span v-if="cell.flags.exercise" class="mark exercise" title="운동" />
-                <span v-if="cell.flags.diary" class="mark diary" title="일기" />
+              <div class="cell-inner">
+                <div class="cell-face cell-front">
+                  <span class="num">{{ cell.dayNumber }}</span>
+                  <div class="marks">
+                    <span v-if="cell.flags.diet" class="mark diet" title="식단" />
+                    <span v-if="cell.flags.exercise" class="mark exercise" title="운동" />
+                    <span v-if="cell.flags.diary" class="mark diary" title="일기" />
+                  </div>
+                  <span v-if="cell.flags.allDone" class="trophy-mini" title="올클리어">🏆</span>
+                </div>
+                <div v-if="cell.flags.allDone" class="cell-face cell-back">
+                  <div class="back-glow" aria-hidden="true"></div>
+                  <div class="trophy-giant" aria-hidden="true">🏆</div>
+                  <div class="back-title">클리어!</div>
+                </div>
               </div>
-              <span v-if="cell.flags.allDone" class="trophy" title="올클리어">🏆</span>
             </button>
           </template>
         </div>
@@ -61,7 +73,7 @@
         </div>
 
         <div v-else class="detail-body">
-          <!-- 요약 박스 클릭 → 식단 페이지 -->
+          <!-- 요약 카드 클릭 시 식단 화면으로 이동 -->
           <div class="summary clickable" @click="goDiet">
             <div class="row">
               <div class="label">섭취 칼로리</div>
@@ -77,7 +89,7 @@
             </div>
           </div>
 
-          <!-- 운동 박스 클릭 → 운동 페이지 -->
+          <!-- 운동 카드 클릭 시 운동 화면으로 이동 -->
           <div class="workout" v-if="exerciseRecords.length" @click="goExercise">
             <div class="e-head">
               <span class="dot blue"></span>
@@ -98,7 +110,7 @@
             <div class="j-empty">운동 기록이 없습니다.</div>
           </div>
 
-          <div class="journal clickable" v-if="journalEntry" @click="openDiary">
+          <div class="journal" v-if="journalEntry" @click="openDiary">
             <div class="j-head">
               <span class="dot purple"></span>
               <span class="j-title">일기</span>
@@ -116,6 +128,13 @@
               <div class="j-empty" v-else>작성된 메모가 없습니다.</div>
             </div>
           </div>
+          <div class="journal" v-else @click="openDiary">
+            <div class="j-head">
+              <span class="dot purple"></span>
+              <span class="j-title">일기</span>
+            </div>
+            <div class="j-empty">일기가 작성되지 않았습니다.</div>
+          </div>
         </div>
       </section>
       
@@ -124,11 +143,17 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { fetchExerciseRecords } from '@/api/exerciseRecords'
 import { getDietByType } from '@/api/diet'
 import { useUserStore } from '@/stores/user'
+import {
+  getCalendarByMonth,
+
+  getMonthlyBadgeCount
+} from '@/api/calendar'
+import { getDiaryByDate, toDiaryClientMood } from '@/api/diary'
 
 const MEAL_TYPES = ['BREAKFAST', 'LUNCH', 'DINNER', 'SNACK']
 
@@ -138,19 +163,18 @@ function toKey(y, m, d) {
   return `${y}-${mm}-${dd}`
 }
 
-function safeParse(key) {
-  try {
-    return JSON.parse(localStorage.getItem(key) || 'null')
-  } catch {
-    return null
-  }
-}
-
 const router = useRouter()
 const userStore = useUserStore()
 const currentDate = ref(new Date())
 const selectedDate = ref(null)
 const memberId = computed(() => userStore.userId)
+
+const calendarByDate = ref({})
+const dietTotalsByDate = ref({})
+const exerciseByDate = ref({})
+const diaryDetailByDate = ref({})
+const monthBadgeCountServer = ref(0)
+const showBadgePopover = ref(false)
 
 const dayNames = ['일', '월', '화', '수', '목', '금', '토']
 
@@ -172,18 +196,46 @@ const selectedLabel = computed(() => {
   })
 })
 
-const diariesByDate = computed(() => {
-  const arr = safeParse('journalEntries') || []
-  const map = {}
-  for (const e of arr) {
-    if (!e?.date) continue
-    map[e.date] = e
-  }
-  return map
-})
+watch(
+  () => [memberId.value, monthMeta.value.year, monthMeta.value.month],
+  () => {
+    fetchCalendarMonth()
+  },
+  { immediate: true }
+)
 
-const dietTotalsByDate = ref({})
-const exerciseByDate = ref({})
+async function fetchCalendarMonth() {
+  if (!memberId.value) {
+    calendarByDate.value = {}
+    monthBadgeCountServer.value = 0
+    return
+  }
+  const { year, month } = monthMeta.value
+  try {
+    const { data } = await getCalendarByMonth({
+      memberId: memberId.value,
+      year,
+      month: month + 1
+    })
+    const map = {}
+    data?.forEach((item) => {
+      if (!item?.calDay) return
+      const key = item.calDay.split('T')[0]
+      map[key] = item
+    })
+    calendarByDate.value = map
+    const { data: badgeData } = await getMonthlyBadgeCount({
+      memberId: memberId.value,
+      year,
+      month: month + 1
+    })
+    monthBadgeCountServer.value = badgeData?.badgeCount ?? 0
+  } catch (error) {
+    console.error('fetchCalendarMonth error', error)
+    calendarByDate.value = {}
+    monthBadgeCountServer.value = 0
+  }
+}
 
 const calendarCells = computed(() => {
   const { daysInMonth, startingDayOfWeek, year, month } = monthMeta.value
@@ -206,9 +258,11 @@ const calendarCells = computed(() => {
       selectedDate.value.getMonth() === month &&
       selectedDate.value.getFullYear() === year
     const key = toKey(year, month, day)
-    const hasDiary = Boolean(diariesByDate.value[key])
-    const intake = Number(dietTotalsByDate.value[key]?.totalKcal || 0)
-    const burn = Number(exerciseByDate.value[key]?.burnKcal || 0)
+    const record = calendarByDate.value[key]
+    const diaryDone = record ? record.diaryStatus === 1 : false
+    const dietDone = record ? record.mealStatus === 1 : false
+    const exerciseDone = record ? record.exerciseStatus === 1 : false
+
     cells.push({
       key: `${year}-${month + 1}-${day}`,
       isPlaceholder: false,
@@ -216,10 +270,10 @@ const calendarCells = computed(() => {
       isToday,
       isSelected,
       flags: {
-        diary: hasDiary,
-        diet: intake > 0,
-        exercise: burn > 0,
-        allDone: hasDiary && intake > 0 && burn > 0
+        diary: diaryDone,
+        diet: dietDone,
+        exercise: exerciseDone,
+        allDone: record?.badgeCount ? record.badgeCount > 0 : diaryDone && dietDone && exerciseDone
       }
     })
   }
@@ -231,15 +285,16 @@ const badgeDays = computed(() => {
   const res = []
   for (let d = 1; d <= daysInMonth; d++) {
     const key = toKey(year, month, d)
-    const hasDiary = Boolean(diariesByDate.value[key])
-    const intake = Number(dietTotalsByDate.value[key]?.totalKcal || 0)
-    const burn = Number(exerciseByDate.value[key]?.burnKcal || 0)
-    if (hasDiary && intake > 0 && burn > 0) res.push(d)
+    const record = calendarByDate.value[key]
+    if (record?.diaryStatus === 1 && record?.mealStatus === 1 && record?.exerciseStatus === 1) {
+      res.push(d)
+    }
   }
   return res
 })
-const monthBadgeCount = computed(() => badgeDays.value.length)
-const showBadgePopover = ref(false)
+
+const monthBadgeCount = computed(() => monthBadgeCountServer.value || badgeDays.value.length)
+
 function toggleBadgePopover() {
   showBadgePopover.value = !showBadgePopover.value
 }
@@ -260,60 +315,87 @@ async function selectDate(day) {
   selectedDate.value = dateObj
   if (!memberId.value) return
   const dateKey = toKey(year, month, day)
+  await Promise.all([
+    fetchDietTotals(dateKey),
+    fetchExerciseTotals(dateKey),
+    fetchDiaryDetail(dateKey)
+  ])
+}
 
+async function fetchDietTotals(dateKey) {
   try {
-    const dietResponses = await Promise.all(
-      MEAL_TYPES.map(type =>
-        getDietByType({ date: dateKey, type, memberId: memberId.value })
-      )
+    const responses = await Promise.all(
+      MEAL_TYPES.map((type) => getDietByType({ date: dateKey, type, memberId: memberId.value }))
     )
-    const dietList = dietResponses.flatMap(res => res.data || [])
+    const dietList = responses.flatMap((res) => res.data || [])
     const intakeKcal = dietList.reduce((sum, item) => {
-      const kcalFromFood =
-        item?.food && item.food.kcal != null ? Number(item.food.kcal) : 0
-      const kcalDirect =
-        item?.kcal != null ? Number(item.kcal) : 0
-      const kcal = !isNaN(kcalFromFood) && kcalFromFood > 0 ? kcalFromFood : kcalDirect
-      return sum + (isNaN(kcal) ? 0 : kcal)
+      const kcalFromFood = item?.food && item.food.kcal != null ? Number(item.food.kcal) : 0
+      const kcalDirect = item?.kcal != null ? Number(item.kcal) : 0
+      const kcal = !Number.isNaN(kcalFromFood) && kcalFromFood > 0 ? kcalFromFood : kcalDirect
+      return sum + (Number.isNaN(kcal) ? 0 : kcal)
     }, 0)
-
     dietTotalsByDate.value = {
       ...dietTotalsByDate.value,
       [dateKey]: { totalKcal: intakeKcal }
     }
+  } catch (error) {
+    console.error('fetchDietTotals error', error)
+    dietTotalsByDate.value = {
+      ...dietTotalsByDate.value,
+      [dateKey]: { totalKcal: 0 }
+    }
+  }
+}
 
+async function fetchExerciseTotals(dateKey) {
+  try {
     const { data: exerciseList = [] } = await fetchExerciseRecords({
       memberId: memberId.value,
       date: dateKey
     })
-    const normalizedExerciseList = Array.isArray(exerciseList)
-      ? exerciseList.map(r => ({
+    const normalized = Array.isArray(exerciseList)
+      ? exerciseList.map((r) => ({
           ...r,
           minutes: r.min,
           kcal: r.burnedKcal
         }))
       : []
-    const burnKcal = normalizedExerciseList.reduce((sum, item) => {
+    const burnKcal = normalized.reduce((sum, item) => {
       const v = Number(item.kcal ?? 0)
-      return sum + (isNaN(v) ? 0 : v)
+      return sum + (Number.isNaN(v) ? 0 : v)
     }, 0)
     exerciseByDate.value = {
       ...exerciseByDate.value,
       [dateKey]: {
         burnKcal,
-        records: normalizedExerciseList
+        records: normalized
       }
     }
-  } catch (e) {
-    console.error('calendar selectDate error', e)
-    dietTotalsByDate.value = {
-      ...dietTotalsByDate.value,
-      [dateKey]: { totalKcal: 0 }
-    }
+  } catch (error) {
+    console.error('fetchExerciseTotals error', error)
     exerciseByDate.value = {
       ...exerciseByDate.value,
       [dateKey]: { burnKcal: 0, records: [] }
     }
+  }
+}
+
+async function fetchDiaryDetail(dateKey) {
+  try {
+    const { data } = await getDiaryByDate({ memberId: memberId.value, date: dateKey })
+    const diary = Array.isArray(data) && data.length ? data[0] : null
+    diaryDetailByDate.value = {
+      ...diaryDetailByDate.value,
+      [dateKey]: diary
+    }
+    return diary
+  } catch (error) {
+    console.error('fetchDiaryDetail error', error)
+    diaryDetailByDate.value = {
+      ...diaryDetailByDate.value,
+      [dateKey]: null
+    }
+    return null
   }
 }
 
@@ -337,11 +419,7 @@ function dayColor(index) {
 
 const summary = computed(() => {
   if (!selectedDate.value) return { intakeKcal: 0, burnKcal: 0, netKcal: 0 }
-  const key = toKey(
-    selectedDate.value.getFullYear(),
-    selectedDate.value.getMonth(),
-    selectedDate.value.getDate()
-  )
+  const key = getSelectedDateKey()
   const intakeKcal = Number(dietTotalsByDate.value[key]?.totalKcal || 0)
   const burnKcal = Number(exerciseByDate.value[key]?.burnKcal || 0)
   return { intakeKcal, burnKcal, netKcal: intakeKcal - burnKcal }
@@ -349,30 +427,23 @@ const summary = computed(() => {
 
 const journalEntry = computed(() => {
   if (!selectedDate.value) return null
-  const key = toKey(
-    selectedDate.value.getFullYear(),
-    selectedDate.value.getMonth(),
-    selectedDate.value.getDate()
-  )
-  const entry = diariesByDate.value[key]
+  const key = getSelectedDateKey()
+  const entry = diaryDetailByDate.value[key]
   if (!entry) return null
-  const moodMap = {
+  const moodKey = entry.mood ? toDiaryClientMood(entry.mood) : null
+  const moodLabelMap = {
     great: '아주 좋음',
     good: '좋음',
-    normal: '보통',
+    okay: '보통',
     bad: '나쁨',
     terrible: '아주 나쁨'
   }
-  return { ...entry, moodLabel: moodMap[entry.mood] || entry.mood }
+  return { ...entry, moodLabel: moodLabelMap[moodKey] || entry.mood }
 })
 
 const exerciseRecords = computed(() => {
   if (!selectedDate.value) return []
-  const key = toKey(
-    selectedDate.value.getFullYear(),
-    selectedDate.value.getMonth(),
-    selectedDate.value.getDate()
-  )
+  const key = getSelectedDateKey()
   const rec = exerciseByDate.value[key]?.records || []
   return Array.isArray(rec) ? rec : []
 })
@@ -390,7 +461,7 @@ function goDiet() {
   const key = getSelectedDateKey()
   if (!key) return
   router.push({
-    path: '/main/dietmanagement', 
+    path: '/main/dietmanagement',
     query: { date: key }
   })
 }
@@ -399,15 +470,25 @@ function goExercise() {
   const key = getSelectedDateKey()
   if (!key) return
   router.push({
-    path: '/main/exerciseRecords', 
+    path: '/main/exerciseRecords',
     query: { date: key }
   })
 }
 
 function openDiary() {
-  if (!selectedDate.value) return
   const key = getSelectedDateKey()
-  router.push({ name: 'main-diary-done', query: { date: key } })
+  if (!key) return
+
+  // 일기가 작성되었는지 확인
+  const diary = diaryDetailByDate.value[key]
+
+  if (diary) {
+    // 일기가 작성된 경우 - 작성된 일기 페이지로 이동
+    router.push({ name: 'main-diary-done', query: { date: key } })
+  } else {
+    // 일기가 작성되지 않은 경우 - 작성 페이지로 이동
+    router.push({ name: 'main-diary', query: { date: key } })
+  }
 }
 </script>
 
@@ -431,19 +512,47 @@ function openDiary() {
 .daynames .sat { color: #3b82f6; }
 
 .grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; }
-.cell { position: relative; aspect-ratio: 1/1; border: 1px solid #e5e7eb; border-radius: 12px; background: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer; flex-direction: column; }
-.cell:hover { background: #f9fafb; }
+.cell { position: relative; aspect-ratio: 1/1; border: 1px solid #e5e7eb; border-radius: 12px; background: #fff; cursor: pointer; padding: 0; perspective: 900px; overflow: hidden; }
+.cell:hover:not(.cell-complete) { background: #f9fafb; }
+.cell-inner { position: relative; width: 100%; height: 100%; border-radius: inherit; display: flex; align-items: center; justify-content: center; transition: transform 0.7s ease; transform-style: preserve-3d; }
+.cell-face { position: absolute; inset: 0; border-radius: inherit; padding: 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #fff; backface-visibility: hidden; }
+.cell-front { gap: 6px; }
+.cell-back {
+  transform: rotateY(180deg);
+  background: radial-gradient(circle at 30% 20%, #fff3c4, #fbbf24 55%, #b45309);
+  color: #fff;
+  text-align: center;
+  gap: 6px;
+  position: relative;
+  overflow: hidden;
+  box-shadow: inset 0 0 25px rgba(255, 255, 255, 0.4), 0 10px 25px rgba(245, 158, 11, 0.5);
+}
+.cell-back > *:not(.back-glow) { position: relative; z-index: 1; }
+.cell-complete:hover .cell-inner { transform: rotateY(180deg); }
 .cell.placeholder { border-color: transparent; background: transparent; cursor: default; }
 .cell.today { border-color: #3b82f6; box-shadow: inset 0 0 0 1px #3b82f6; }
 .cell.selected { border-color: #111827; box-shadow: inset 0 0 0 2px #111827; }
-.num { font-weight: 700; color: #111827; }
+.num { font-weight: 700; color: #111827; align-self: flex-start; }
 
-.marks { position: absolute; bottom: 6px; display: flex; gap: 6px; }
+.marks { position: absolute; bottom: 8px; display: flex; gap: 6px; }
 .mark { width: 6px; height: 6px; border-radius: 999px; display: inline-block; }
 .mark.diet { background: #22c55e; }
 .mark.exercise { background: #3b82f6; }
 .mark.diary { background: #8b5cf6; }
-.trophy { position: absolute; top: 6px; right: 6px; font-size: 14px; }
+.trophy-mini { position: absolute; top: 8px; right: 8px; font-size: 14px; }
+.trophy-giant { line-height: 1; font-size: 32px; filter: drop-shadow(0 4px 8px rgba(146, 64, 14, 0.5)); }
+.back-glow {
+  position: absolute;
+  width: 160%;
+  height: 160%;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.5), transparent 70%);
+  filter: blur(12px);
+  opacity: 0.65;
+  z-index: 0;
+}
+.back-date { font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; font-size: 12px; color: rgba(255, 255, 255, 0.8); }
+.back-title { font-size: 10px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; margin-top: 2px; }
+.back-sub { font-size: 13px; opacity: 0.9; letter-spacing: 0.04em; }
 
 .legend { display: flex; gap: 14px; align-items: center; margin-top: 12px; padding-top: 12px; border-top: 1px solid #eef0f4; color: #6b7280; font-size: 14px; }
 .dot { width: 8px; height: 8px; display: inline-block; border-radius: 999px; margin-right: 6px; }
@@ -474,9 +583,8 @@ function openDiary() {
 .e-type { font-weight: 600; color: #111827; }
 .e-meta { color: #6b7280; }
 
-.journal { border: 1px solid #eef0f4; border-radius: 12px; padding: 10px 12px; }
-.journal.clickable { cursor: pointer; }
-.journal.clickable:hover { background: #fafafb; }
+.journal { border: 1px solid #eef0f4; border-radius: 12px; padding: 10px 12px; cursor: pointer; }
+.journal:hover { background: #fafafb; }
 .j-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 .j-title { font-weight: 700; color: #374151; }
 .badge { background: #f3f4f6; color: #374151; border-radius: 8px; padding: 2px 6px; font-size: 12px; margin-left: 4px; }
@@ -505,4 +613,5 @@ function openDiary() {
 }
 </style>
 
-\n.month-badges { margin-left: auto; font-weight: 800; color: #111827; background: #fff7ed; border: 1px solid #fdebd3; padding: 6px 10px; border-radius: 999px; display: flex; align-items: center; gap: 6px; }\n.month-badges .count { color: #c2410c; }\n
+.month-badges { margin-left: auto; font-weight: 800; color: #111827; background: #fff7ed; border: 1px solid #fdebd3; padding: 6px 10px; border-radius: 999px; display: flex; align-items: center; gap: 6px; }
+.month-badges .count { color: #c2410c; }
