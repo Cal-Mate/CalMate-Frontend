@@ -119,13 +119,13 @@ api.interceptors.response.use(
       if(original.url === refreshUrl)
       {
           
-          console.log('리프래시 이상 ===========')
-          isRefreshing = false;                                  
-          refreshPromise = null;   
-          toastError('이상 접근 감지',{description: '비정상 접근이 갑지 되어 재 로그인 시도 부탁 드립니다.' });
-          const user = useUserStore();     
-          user.logOut();                       
-          await router.push('/')  
+          // console.log('리프래시 이상 ===========')
+          // isRefreshing = false;                                  
+          // refreshPromise = null;   
+          // toastError('이상 접근 감지',{description: '비정상 접근이 갑지 되어 재 로그인 시도 부탁 드립니다.' });
+          // const user = useUserStore();     
+          // user.logOut();                       
+          // await router.push('/')  
           // 🔥 여기서 끝내야 아래에서 또 /member/refresh 안 감
           return Promise.reject(error);
       }
