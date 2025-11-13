@@ -124,10 +124,12 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { fetchExerciseRecords } from '@/api/exerciseRecords'
 import { getDietByType } from '@/api/diet'
+import { fetchCalendarRange } from '@/api/calendar'
+import { fetchDiariesByDay } from '@/api/diary'
 import { useUserStore } from '@/stores/user'
 
 const MEAL_TYPES = ['BREAKFAST', 'LUNCH', 'DINNER', 'SNACK']
@@ -138,12 +140,34 @@ function toKey(y, m, d) {
   return `${y}-${mm}-${dd}`
 }
 
-function safeParse(key) {
+function toDateKeyFromValue(value) {
+  if (!value) return null
+  if (typeof value === 'string') {
+    return value.split('T')[0]
+  }
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toISOString().split('T')[0]
+  }
+  if (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof value.year === 'number' &&
+    typeof value.monthValue === 'number' &&
+    typeof value.dayOfMonth === 'number'
+  ) {
+    const mm = String(value.monthValue).padStart(2, '0')
+    const dd = String(value.dayOfMonth).padStart(2, '0')
+    return `${value.year}-${mm}-${dd}`
+  }
   try {
-    return JSON.parse(localStorage.getItem(key) || 'null')
+    const parsed = new Date(value)
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.toISOString().split('T')[0]
+    }
   } catch {
     return null
   }
+  return null
 }
 
 const router = useRouter()
@@ -172,18 +196,60 @@ const selectedLabel = computed(() => {
   })
 })
 
-const diariesByDate = computed(() => {
-  const arr = safeParse('journalEntries') || []
-  const map = {}
-  for (const e of arr) {
-    if (!e?.date) continue
-    map[e.date] = e
-  }
-  return map
-})
-
 const dietTotalsByDate = ref({})
 const exerciseByDate = ref({})
+const calendarByDate = ref({})
+const selectedDiaryEntry = ref(null)
+
+async function loadCalendarRange() {
+  if (!memberId.value) {
+    calendarByDate.value = {}
+    return
+  }
+  const { year, month, daysInMonth } = monthMeta.value
+  const monthStr = String(month + 1).padStart(2, '0')
+  const startDate = `${year}-${monthStr}-01`
+  const endDate = `${year}-${monthStr}-${String(daysInMonth).padStart(2, '0')}`
+
+  try {
+    const records = await fetchCalendarRange({
+      memberId: memberId.value,
+      startDate,
+      endDate
+    })
+
+    const map = {}
+    records.forEach((item) => {
+      const key = toDateKeyFromValue(item?.calDay)
+      if (!key) return
+      const exercise = Number(item?.exerciseStatus ?? 0) === 1
+      const diet = Number(item?.mealStatus ?? 0) === 1
+      const diary = Number(item?.diaryStatus ?? 0) === 1
+      map[key] = {
+        exercise,
+        diet,
+        diary,
+        allDone: exercise && diet && diary
+      }
+    })
+    calendarByDate.value = map
+  } catch (error) {
+    console.error('calendar loadCalendarRange error', error)
+    calendarByDate.value = {}
+  }
+}
+
+watch(
+  [() => monthMeta.value.year, () => monthMeta.value.month, () => memberId.value],
+  () => {
+    if (!memberId.value) {
+      calendarByDate.value = {}
+      return
+    }
+    loadCalendarRange()
+  },
+  { immediate: true }
+)
 
 const calendarCells = computed(() => {
   const { daysInMonth, startingDayOfWeek, year, month } = monthMeta.value
@@ -206,9 +272,10 @@ const calendarCells = computed(() => {
       selectedDate.value.getMonth() === month &&
       selectedDate.value.getFullYear() === year
     const key = toKey(year, month, day)
-    const hasDiary = Boolean(diariesByDate.value[key])
-    const intake = Number(dietTotalsByDate.value[key]?.totalKcal || 0)
-    const burn = Number(exerciseByDate.value[key]?.burnKcal || 0)
+    const status = calendarByDate.value[key] || {}
+    const hasDiary = Boolean(status.diary)
+    const hasDiet = Boolean(status.diet)
+    const hasExercise = Boolean(status.exercise)
     cells.push({
       key: `${year}-${month + 1}-${day}`,
       isPlaceholder: false,
@@ -217,9 +284,9 @@ const calendarCells = computed(() => {
       isSelected,
       flags: {
         diary: hasDiary,
-        diet: intake > 0,
-        exercise: burn > 0,
-        allDone: hasDiary && intake > 0 && burn > 0
+        diet: hasDiet,
+        exercise: hasExercise,
+        allDone: status.allDone ?? (hasDiary && hasDiet && hasExercise)
       }
     })
   }
@@ -231,10 +298,7 @@ const badgeDays = computed(() => {
   const res = []
   for (let d = 1; d <= daysInMonth; d++) {
     const key = toKey(year, month, d)
-    const hasDiary = Boolean(diariesByDate.value[key])
-    const intake = Number(dietTotalsByDate.value[key]?.totalKcal || 0)
-    const burn = Number(exerciseByDate.value[key]?.burnKcal || 0)
-    if (hasDiary && intake > 0 && burn > 0) res.push(d)
+    if (calendarByDate.value[key]?.allDone) res.push(d)
   }
   return res
 })
@@ -258,15 +322,30 @@ async function selectDate(day) {
   const { year, month } = monthMeta.value
   const dateObj = new Date(year, month, day)
   selectedDate.value = dateObj
+  selectedDiaryEntry.value = null
   if (!memberId.value) return
   const dateKey = toKey(year, month, day)
 
   try {
-    const dietResponses = await Promise.all(
+    const dietPromise = Promise.all(
       MEAL_TYPES.map(type =>
         getDietByType({ date: dateKey, type, memberId: memberId.value })
       )
     )
+    const exercisePromise = fetchExerciseRecords({
+      memberId: memberId.value,
+      date: dateKey
+    })
+    const diaryPromise = fetchDiariesByDay({
+      memberId: memberId.value,
+      day: dateKey
+    })
+
+    const [dietResponses, exerciseResponse, diaryList] = await Promise.all([
+      dietPromise,
+      exercisePromise,
+      diaryPromise
+    ])
     const dietList = dietResponses.flatMap(res => res.data || [])
     const intakeKcal = dietList.reduce((sum, item) => {
       const kcalFromFood =
@@ -282,17 +361,12 @@ async function selectDate(day) {
       [dateKey]: { totalKcal: intakeKcal }
     }
 
-    const { data: exerciseList = [] } = await fetchExerciseRecords({
-      memberId: memberId.value,
-      date: dateKey
-    })
-    const normalizedExerciseList = Array.isArray(exerciseList)
-      ? exerciseList.map(r => ({
-          ...r,
-          minutes: r.min,
-          kcal: r.burnedKcal
-        }))
-      : []
+    const exerciseListRaw = Array.isArray(exerciseResponse?.data) ? exerciseResponse.data : []
+    const normalizedExerciseList = exerciseListRaw.map(r => ({
+      ...r,
+      minutes: r.min,
+      kcal: r.burnedKcal
+    }))
     const burnKcal = normalizedExerciseList.reduce((sum, item) => {
       const v = Number(item.kcal ?? 0)
       return sum + (isNaN(v) ? 0 : v)
@@ -304,6 +378,7 @@ async function selectDate(day) {
         records: normalizedExerciseList
       }
     }
+    selectedDiaryEntry.value = Array.isArray(diaryList) && diaryList.length ? diaryList[0] : null
   } catch (e) {
     console.error('calendar selectDate error', e)
     dietTotalsByDate.value = {
@@ -314,6 +389,7 @@ async function selectDate(day) {
       ...exerciseByDate.value,
       [dateKey]: { burnKcal: 0, records: [] }
     }
+    selectedDiaryEntry.value = null
   }
 }
 
@@ -348,14 +424,8 @@ const summary = computed(() => {
 })
 
 const journalEntry = computed(() => {
-  if (!selectedDate.value) return null
-  const key = toKey(
-    selectedDate.value.getFullYear(),
-    selectedDate.value.getMonth(),
-    selectedDate.value.getDate()
-  )
-  const entry = diariesByDate.value[key]
-  if (!entry) return null
+  if (!selectedDate.value || !selectedDiaryEntry.value) return null
+  const entry = selectedDiaryEntry.value
   const moodMap = {
     great: '아주 좋음',
     good: '좋음',
@@ -363,7 +433,11 @@ const journalEntry = computed(() => {
     bad: '나쁨',
     terrible: '아주 나쁨'
   }
-  return { ...entry, moodLabel: moodMap[entry.mood] || entry.mood }
+  return {
+    ...entry,
+    notes: entry.memo,
+    moodLabel: moodMap[entry.mood] || entry.mood
+  }
 })
 
 const exerciseRecords = computed(() => {
