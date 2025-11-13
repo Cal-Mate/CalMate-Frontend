@@ -410,6 +410,10 @@ const saveEdit = async () => {
 };
 
 /* ---------- 좋아요/댓글 액션 ---------- */
+
+import { useCommunityStore } from '@/stores/community'
+const communityStore = useCommunityStore()
+
 const toggleLikePost = async () => {
   if (!userStore.isLoggedIn) {
     alert("로그인이 필요합니다 😊");
@@ -418,6 +422,10 @@ const toggleLikePost = async () => {
   await togglePostLike(route.params.postId, userStore.userId);
   liked.value = !liked.value;
   likeCount.value += liked.value ? 1 : -1;
+
+    // ✅ 랭킹 자동 갱신 신호 보내기
+  communityStore.triggerRefresh()
+
 };
 const submitComment = async () => {
   if (!userStore.isLoggedIn) {
