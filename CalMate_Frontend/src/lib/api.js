@@ -36,9 +36,9 @@ const API_BASE_URL = (import.meta.env?.VITE_API_BASE_URL || 'http://localhost:80
 // 1) 전역에서 쓸 Axios 인스턴스 1개 생성
 // ------------------------------------------------------------
 const api = axios.create({
-  baseURL: API_BASE_URL,          // 모든 상대 경로 요청은 '/localhost:80'를 기준으로 보낸다. (Vite dev proxy로 백엔드 연결 가정)
+  // baseURL: API_BASE_URL,          // 모든 상대 경로 요청은 '/localhost:80'를 기준으로 보낸다. (Vite dev proxy로 백엔드 연결 가정)
   // baseURL: 'http://localhost:80/back',          // 모든 상대 경로 요청은 '/localhost:80'를 기준으로 보낸다. (Vite dev proxy로 백엔드 연결 가정)
-  // baseURL: '/back',          // 모든 상대 경로 요청은 '/localhost:80'를 기준으로 보낸다. (Vite dev proxy로 백엔드 연결 가정)
+  baseURL: '/back',          // 모든 상대 경로 요청은 '/localhost:80'를 기준으로 보낸다. (Vite dev proxy로 백엔드 연결 가정)
   // baseURL: 'http://localhost:8081',          // 모든 상대 경로 요청은 '/localhost:80'를 기준으로 보낸다. (Vite dev proxy로 백엔드 연결 가정)
   withCredentials: true,    // ✅ 브라우저가 HttpOnly 쿠키(리프레시 토큰)를 자동으로 전송하도록 허용
   timeout: 15000,           // 네트워크 요청 타임아웃(ms). 필요에 따라 조정 가능.
@@ -120,8 +120,8 @@ api.interceptors.response.use(
     if ((status === 401 || status === 403) && !original._retry) {
 
       const user = useUserStore();
-      console.log('토큰 값::::::', user.token);
-      console.log('토큰 만료 유무', isTokenExpired(user.token));
+      // console.log('토큰 값::::::', user.token);
+      // console.log('토큰 만료 유무', isTokenExpired(user.token));
 
       if(!isTokenExpired(user.token))
       {
@@ -156,9 +156,9 @@ api.interceptors.response.use(
           //     있으면 새로 만들지 않고 그 Promise를 그대로 기다린다.
           //     → 이렇게 하면 동시 다발적인 401에도 리프레시가 1번만 일어난다.
           // ─────────────────────────────────────────────────────────
-          console.log(`original 값 : ` ,original);
-          console.log(`refreshPromise 값: `, refreshPromise);
-          console.log(`isRefreshing 값: `, isRefreshing);
+          // console.log(`original 값 : ` ,original);
+          // console.log(`refreshPromise 값: `, refreshPromise);
+          // console.log(`isRefreshing 값: `, isRefreshing);
           if (!refreshPromise) {
             isRefreshing = true;                                       // ✔ (선택) 플래그 on
 
