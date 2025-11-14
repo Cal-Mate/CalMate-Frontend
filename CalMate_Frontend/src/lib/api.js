@@ -38,8 +38,8 @@ const formattedTimeForKor =  () => {
 const api = axios.create({
   // baseURL: API_BASE_URL,          // 모든 상대 경로 요청은 '/localhost:80'를 기준으로 보낸다. (Vite dev proxy로 백엔드 연결 가정)
   // baseURL: 'http://localhost:80/back',          // 모든 상대 경로 요청은 '/localhost:80'를 기준으로 보낸다. (Vite dev proxy로 백엔드 연결 가정)
-  baseURL: '/back',          // 모든 상대 경로 요청은 '/localhost:80'를 기준으로 보낸다. (Vite dev proxy로 백엔드 연결 가정)
-  // baseURL: 'http://localhost:8081',          // 모든 상대 경로 요청은 '/localhost:80'를 기준으로 보낸다. (Vite dev proxy로 백엔드 연결 가정)
+  // baseURL: '/back',          // 모든 상대 경로 요청은 '/localhost:80'를 기준으로 보낸다. (Vite dev proxy로 백엔드 연결 가정)
+  baseURL: 'http://localhost:8081',          // 모든 상대 경로 요청은 '/localhost:80'를 기준으로 보낸다. (Vite dev proxy로 백엔드 연결 가정)
   withCredentials: true,    // ✅ 브라우저가 HttpOnly 쿠키(리프레시 토큰)를 자동으로 전송하도록 허용
   timeout: 15000,           // 네트워크 요청 타임아웃(ms). 필요에 따라 조정 가능.
 });
@@ -58,10 +58,10 @@ console.log('API_BASE_URL::' , API_BASE_URL);
 //                      나는 경우를 막기 위해, 리프레시/로그인 등의 URL을 제외
 // ─────────────────────────────────────────────────────────────────────────────
 let refreshPromise = null;                 // ✔ 진행 중인 리프레시 요청이 없으면 null
-let isRefreshing = false;                  // ✔ (선택) 디버깅용 플래그
+let isRefreshing = false;                  // ✔ 디버깅용 플래그
 const EXCLUDED_URLS = [                    // ✔ 인터셉터 제외 대상 URL들
   '/member/refresh',                       //    - 실제 리프레시 호출 경로
-  // '/auth/login',                           //    - 로그인 요청(환경에 맞게 추가/수정)
+  '/login',                               //    - 로그인 요청
 ];
 const refreshUrl = '/member/refresh';
 
