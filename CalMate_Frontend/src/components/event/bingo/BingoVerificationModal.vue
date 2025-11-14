@@ -90,6 +90,15 @@ import Button from '../ui/Button.vue';
 import Input from '../ui/Input.vue';
 import { useToast } from '../lib/toast.js';
 import { cancelBingoCellCheck, checkBingoCell, deleteBingoFile } from '@/api/bingo';
+import api from '@/lib/api';
+
+function resolveFileUrl(path) {
+  if (!path) return '';
+  if (/^https?:/i.test(path)) return path;
+  const normalized = path.startsWith('/') ? path : `/${path}`;
+  if (!api.defaults.baseURL) return normalized;
+  return `${api.defaults.baseURL}${normalized}`;
+}
 
 export default defineComponent({
   name: 'BingoVerificationModal',
@@ -136,9 +145,12 @@ export default defineComponent({
       return props.board[row]?.[col] ?? null;
     });
 
-    const previewImage = computed(
-      () => uploadedPreview.value || currentCell.value?.photo || currentCell.value?.uploads?.[0]?.fullUrl || null,
-    );
+    const previewImage = computed(() => {
+      if (uploadedPreview.value) return uploadedPreview.value;
+      if (currentCell.value?.photo) return resolveFileUrl(currentCell.value.photo);
+      if (currentCell.value?.uploads?.[0]?.fullUrl) return resolveFileUrl(currentCell.value.uploads[0].fullUrl);
+      return null;
+    });
 
     watch(
       () => props.selectedCell,
