@@ -36,8 +36,8 @@ const formattedTimeForKor =  () => {
 // 1) 전역에서 쓸 Axios 인스턴스 1개 생성
 // ------------------------------------------------------------
 const api = axios.create({
-  // baseURL: '/back',          
-  baseURL: 'http://localhost:8081',          
+  baseURL: '/back',          
+  // baseURL: 'http://localhost:8081',          
   withCredentials: true,    // ✅ 브라우저가 HttpOnly 쿠키(리프레시 토큰)를 자동으로 전송하도록 허용
   timeout: 15000,           // 네트워크 요청 타임아웃(ms). 필요에 따라 조정 가능.
 });

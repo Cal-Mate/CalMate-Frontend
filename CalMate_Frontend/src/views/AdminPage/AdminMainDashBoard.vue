@@ -118,6 +118,11 @@ onMounted(async () =>  {
     kpi.newUseres = result.responseData.newMembers;
     kpi.activeRate = Math.round(kpi.totalActive / kpi.totalUsers * 100 * 100) / 100;
 
+    kpi.totalPosts = result.dashboard.post;
+    kpi.totalPoints = result.dashboard.point;
+    kpi.pendingReports = result.dashboard.report;
+    kpi.pendingInquiries = result.dashboard.qna;
+
   }
   catch (error)
   {
