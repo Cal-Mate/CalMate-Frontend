@@ -114,6 +114,7 @@ api.interceptors.response.use(
     // 4-2-3) 인터셉터 제외 대상 URL이면(리프레시/로그인이 실패해서 또 들어온 경우 등),
     //        루프를 방지하기 위해 그대로 던진다.
     const url = original.url || '';
+    console.log('에러 처리 url:::',original.url)
     if (EXCLUDED_URLS.some((u) => url.includes(u))) {
       return Promise.reject(error);
     }
